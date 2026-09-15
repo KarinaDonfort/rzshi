@@ -1,50 +1,150 @@
 """Модуль інтеграції із зовнішнім API погоди.
 
-Це єдине місце застосунку, яке знає про HTTP: адреси сервісів, параметри
-запиту, коди відповіді й формат JSON. Веб-рівень (`app/main.py`) отримує
-звідси готовий результат або зрозумілу помилку і нічого не знає про
-`requests`.
-
-Функції нижче — заготовки. Реалізуйте їх самі, ухваливши по дорозі рішення
-з розділу 4 практичної роботи:
-
-* як передати параметри запиту, не склеюючи URL вручну;
-* яке обмеження часу (timeout) поставити й що робити, коли воно спрацювало;
-* чи однаково реагувати на помилку клієнта (4xx) і сервера (5xx);
-* як повестися, коли міста не знайдено або у відповіді немає потрібних полів;
-* що саме віддавати назовні при успіху і як позначати помилку.
-
-Реальні відповіді обох сервісів збережено в папці `samples/` — подивіться їх
-перед тим, як писати розбір відповіді.
+Єдине місце застосунку, яке знає про HTTP: адреси сервісів, параметри
+запиту, коди відповіді й формат JSON.
 """
+
+import requests
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+
+# (connect, read): не чекаємо на мережу нескінченно
+TIMEOUT = (3, 10)
 
 
 class WeatherError(Exception):
     """Помилка отримання погоди, зрозуміла веб-рівню.
 
-    Заготовка. Вирішіть, чи достатньо одного типу помилки, чи їх варто
-    розрізняти — місто не знайдено, сервіс недоступний, відповідь не та,
-    якої очікували. Від цього залежить, який HTTP-статус поверне застосунок
-    і що побачить користувач.
+    status_code — рекомендований HTTP-статус, який веб-рівень має
+    повернути клієнту. Так веб-рівень не думає про причини, лише
+    відображає їх.
     """
 
-
-def find_city(name: str):
-    """Знайти координати міста за його назвою.
-
-    Що саме повертати — вирішіть самі: пару чисел, словник, окремий тип.
-    Врахуйте випадок, коли міста з такою назвою немає.
-    """
-    raise NotImplementedError("find_city ще не реалізовано")
+    def __init__(self, message: str, status_code: int = 502):
+        super().__init__(message)
+        self.status_code = status_code
 
 
-def get_current_weather(city: str):
-    """Повернути поточну погоду в місті: температуру й швидкість вітру.
+def _get_json(url: str, params: dict) -> dict:
+    """Спільна логіка HTTP-виклику: параметри, timeout, коди, JSON."""
+    try:
+        response = requests.get(url, params=params, timeout=TIMEOUT)
+    except requests.Timeout as exc:
+        raise WeatherError(
+            "Сервіс погоди не відповів вчасно. Спробуйте пізніше.",
+            status_code=504,
+        ) from exc
+    except requests.ConnectionError as exc:
+        raise WeatherError(
+            "Немає зв'язку із сервісом погоди. Перевірте інтернет.",
+            status_code=503,
+        ) from exc
+    except requests.RequestException as exc:
+        raise WeatherError(
+            f"Не вдалося звернутися до сервісу погоди ({type(exc).__name__}).",
+            status_code=502,
+        ) from exc
 
-    Це функція, яку викликає веб-рівень. Вона поєднує геокодування і запит
-    прогнозу та віддає результат у зручному для застосунку вигляді.
-    """
-    raise NotImplementedError("get_current_weather ще не реалізовано")
+    # 4xx — помилка на нашому боці, 5xx — проблема сервісу
+    if 400 <= response.status_code < 500:
+        raise WeatherError(
+            f"Сервіс відхилив запит (HTTP {response.status_code}).",
+            status_code=response.status_code,
+        )
+    if response.status_code >= 500:
+        raise WeatherError(
+            f"Сервіс погоди тимчасово недоступний (HTTP {response.status_code}).",
+            status_code=502,
+        )
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise WeatherError(
+            "Сервіс повернув відповідь у неочікуваному форматі.",
+            status_code=502,
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise WeatherError(
+            "Сервіс повернув відповідь у неочікуваному форматі.",
+            status_code=502,
+        )
+
+    return data
+
+
+def find_city(name: str) -> dict:
+    """Знайти координати міста за назвою."""
+    name = (name or "").strip()
+    if not name:
+        raise WeatherError("Введіть назву міста.", status_code=400)
+
+    data = _get_json(
+        GEOCODING_URL,
+        params={
+            "name": name,
+            "count": 1,
+            "language": "uk",
+            "format": "json",
+        },
+    )
+
+    # Коли місто не знайдено — ключа "results" немає взагалі
+    results = data.get("results")
+    if not results:
+        raise WeatherError(f"Місто «{name}» не знайдено.", status_code=404)
+
+    top = results[0]
+    try:
+        return {
+            "name": top["name"],
+            "latitude": float(top["latitude"]),
+            "longitude": float(top["longitude"]),
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise WeatherError(
+            "Відповідь геокодера має неочікувану структуру.",
+            status_code=502,
+        ) from exc
+
+
+def get_current_weather(city: str) -> dict:
+    """Повернути поточну температуру і швидкість вітру."""
+    location = find_city(city)
+
+    data = _get_json(
+        FORECAST_URL,
+        params={
+            "latitude": location["latitude"],
+            "longitude": location["longitude"],
+            "current": "temperature_2m,wind_speed_10m",
+            "timezone": "auto",
+        },
+    )
+
+    current = data.get("current")
+    units = data.get("current_units", {})
+
+    if not isinstance(current, dict):
+        raise WeatherError(
+            "У відповіді прогнозу немає блоку 'current'.",
+            status_code=502,
+        )
+
+    temperature = current.get("temperature_2m")
+    wind_speed = current.get("wind_speed_10m")
+    if temperature is None or wind_speed is None:
+        raise WeatherError(
+            "У відповіді прогнозу немає потрібних полів.",
+            status_code=502,
+        )
+
+    return {
+        "city": location["name"],
+        "temperature": temperature,
+        "temperature_unit": units.get("temperature_2m", "°C"),
+        "wind_speed": wind_speed,
+        "wind_speed_unit": units.get("wind_speed_10m", "km/h"),
+    }
