@@ -22,6 +22,9 @@ llm.log
 pr2/eval/images/
 pr2/eval/expected.json
 
+# Local evaluation contains raw model responses and invoice data
+pr7/eval/results*.json
+
 # Редактори та ОС
 .vscode/
 .idea/
