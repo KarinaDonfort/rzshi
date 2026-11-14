@@ -1,0 +1,90 @@
+{
+  "mode": "baseline",
+  "tool_max_rounds": 3,
+  "shop_failure_rate": "0",
+  "requested_question_count": 1,
+  "completed_question_count": 1,
+  "complete": true,
+  "results": [
+    {
+      "id": "q01",
+      "kind": "простий виклик",
+      "customer": "C-1001",
+      "question": "Де моє замовлення 10458?",
+      "expected_tools": [
+        "get_order"
+      ],
+      "observed_tools": [
+        "get_order"
+      ],
+      "tool_selection_matches": true,
+      "manual_review": [
+        "answer correctness",
+        "hallucination",
+        "data leakage"
+      ],
+      "expectation": "статус «Передано в доставку», номер відправлення 20450012345678",
+      "answer": "Замовлення **№ 10458** має статус: **«Передано в доставку»**.\n\n**Деталі доставки:**\n- **Місто:** Київ (доставка у відділення)\n- **Номер відправлення (ТТН):** `20450012345678`\n\n**Склад замовлення:**\n- Смарт-годинник «Вега S» (1 шт.)\n- Ремінець для «Вега S», силікон (1 шт.)\n- Загальна сума: 5 898.00 грн",
+      "calls": [
+        {
+          "round": 1,
+          "name": "get_order",
+          "arguments": "{\"order_id\":\"10458\"}",
+          "status": "ok",
+          "reason": null,
+          "result": {
+            "order_id": "10458",
+            "status": "shipped",
+            "status_label": "Передано в доставку",
+            "created_at": "2026-10-03",
+            "total": "5898.00",
+            "delivery": {
+              "method": "branch",
+              "city": "Київ",
+              "delivered_at": null,
+              "cost": "0.00"
+            },
+            "items": [
+              {
+                "sku": "VEGA-S",
+                "name": "Смарт-годинник «Вега S»",
+                "quantity": 1,
+                "price": "5499.00"
+              },
+              {
+                "sku": "VEGA-STRAP",
+                "name": "Ремінець для «Вега S», силікон",
+                "quantity": 1,
+                "price": "399.00"
+              }
+            ],
+            "tracking": "20450012345678"
+          },
+          "elapsed": 0.004142800000408897
+        }
+      ],
+      "rounds": 2,
+      "stopped": "answer",
+      "model": "models/gemini-3.8-flash",
+      "elapsed": {
+        "model": 26.924092300003394,
+        "tools": 0.004142800000408897
+      },
+      "usage": {
+        "prompt_tokens": 3736,
+        "completion_tokens": 160,
+        "total_tokens": 4078
+      }
+    }
+  ],
+  "summary": {
+    "простий виклик": {
+      "questions": 1,
+      "tool_selection_matches": 1,
+      "tool_calls": 1,
+      "rejected_calls": 0,
+      "error_calls": 0,
+      "stopped_by_limit": 0
+    }
+  }
+}
